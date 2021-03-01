@@ -17,7 +17,7 @@ class Database:
 		return result
 
 	def put(self, key, val):
-		# val of format {"phone_number": "111-222-3333"}
+		# val format {"phone_number": "111-222-3333"}
 		self.store[key] = val
 
 	def get(self, key):
