@@ -25,7 +25,7 @@ class Ballot:
 	def __init__(self, ballot_num, op):
 		self.num = ballot_num
 		self.val = op
-		self.acceptance = {}
+		self.acceptance = set()
 
 	def __eq__(self, rhs):
 		return self.num == rhs.num

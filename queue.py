@@ -5,7 +5,9 @@ from threading import Lock
 
 class Queue:
 	def __init__(self):
+		# priority heap to keep track of order of ballots
 		self.heap = []
+		# hash table to associate ballot with acceptance counts
 		self.hash_table = {}
 		self.lock = Lock()
 
