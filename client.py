@@ -1,4 +1,4 @@
-# client that sends operation requests to server
+# client that sends database operations to server
 
 import json
 import os

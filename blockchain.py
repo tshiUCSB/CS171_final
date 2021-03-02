@@ -2,6 +2,9 @@
 
 from hashlib import sha256
 import json
+import pickle
+
+from database import Database
 
 class Operation:
 	def __init__(self, op, key, val={}):
@@ -19,12 +22,19 @@ def parse_op(op_str):
 	return Operation(op_arr[0], op_arr[1], val)
 
 class Block:
-	def __init__(self, op, prev):
+	def __init__(self, op, prev, tag=0):
 		self.op = op
 		self.prev = prev
 		self.nonce = self.calc_nonce()
 		# 0: tentative; 1: decided
-		self.tag = 0
+		self.tag = tag
+
+	def __str__(self):
+		tag = "tentative" if self.tag == 0 else "decided"
+		s = "\top: {}\n\thash: {}\n\tnonce: {}\n\ttag: {}".format(self.op, self.prev, self.nonce, tag)
+
+	def concat(self):
+		return str(self.op) + self.nonce + self.prev
 
 	def difficulty_check(self, nonce):
 		hasher = sha256()
@@ -65,12 +75,47 @@ class Block:
 
 class Blockchain:
 	def __init__(self):
-		self.head = None
-		self.tail = head
-		self.it = head
+		self.chain = []
 
-	def append(self, op):
-		# TODO: stub
-		return None
+	def __str__(self):
+		s = "=====blockchain_start=====\n"
+		for blk in self.chain:
+			border = "----------\n"
+			s += border + str(blk) + "\n"
+		s += "=====blockchain_end====="
+
+		return s
+
+	def write_to_disk(self, save_file):
+		save = open(save_file, 'w')
+		pickle.dump(self.chain, save)
+		save.close()
+
+	def reconstruct_from_disk(self, save_file):
+		save = open(save_file, 'r')
+		self.chain = pickle.load(save)
+		save.close()
+
+		db = Database()
+		for blk in self.chain:
+			db.dispatch(blk.op)
+
+		return db
+
+	def append(self, op, save_file=None):
+		prev_block = self.chain[-1]
+
+		hasher = sha256()
+		hasher.update(bytes(prev_block.concat(), "utf-8"))
+		prev_hash = hasher.hexdigest()
+
+		new_block = Block(op, prev_hash)
+		self.chain.append(new_block)
+
+		if save is not None:
+			write_to_disk(save_file)
+
+
+
 
 	

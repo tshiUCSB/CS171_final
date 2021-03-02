@@ -1,6 +1,7 @@
 # creation of node that servers operation requests from clients
 # to participate in paxos in maintaining blockchain
 
+import heapq
 import json
 import os
 import socket
