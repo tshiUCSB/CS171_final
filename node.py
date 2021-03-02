@@ -1,7 +1,6 @@
 # creation of node that servers operation requests from clients
 # to participate in paxos in maintaining blockchain
 
-import heapq
 import json
 import os
 import socket
@@ -11,6 +10,7 @@ import threading
 from blockchain import Blockchain
 from database import Database
 from lamport import Lamport_clock
+from queue import Queue
 
 def logger(content, log=True):
 	global PROCESS_ID
@@ -110,7 +110,6 @@ if __name__ == "__main__":
 		"exit_flag": False,
 		"lamport_clock": Lamport_clock(int(PROCESS_ID)),
 		"locks": {},
-		"queue": [],
 		"sock_dict": {}
 	}
 
