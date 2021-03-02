@@ -1,8 +1,11 @@
 # definition of key-store database
 
+from threading import Lock
+
 class Database:
 	def __init__(self):
 		self.store = {}
+		self.lock = Lock()
 
 	def __str__(self):
 		return str(self.store)
@@ -21,7 +24,9 @@ class Database:
 
 	def put(self, key, val):
 		# val format {"phone_number": "111-222-3333"}
-		self.store[key] = val
+		with self.lock:
+			self.store[key] = val
 
 	def get(self, key):
-		return self.store[key]
+		with self.lock:
+			return self.store[key]
