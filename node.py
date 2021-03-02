@@ -103,10 +103,15 @@ if __name__ == "__main__":
 	PROCESS_ID = sys.argv[1]
 
 	gb_vars = {
+		"accepted": {
+			"ballot": Lamport_clock(0),
+			"val": None
+		},
 		"exit_flag": False,
 		"lamport_clock": Lamport_clock(int(PROCESS_ID)),
-		"sock_dict": {},
-		"locks": {}
+		"locks": {},
+		"queue": [],
+		"sock_dict": {}
 	}
 
 	config_file_path = "config.json"

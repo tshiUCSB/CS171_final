@@ -4,6 +4,9 @@ class Database:
 	def __init__(self):
 		self.store = {}
 
+	def __str__(self):
+		return str(self.store)
+
 	def dispatch(self, op):
 		result = None
 

@@ -13,13 +13,28 @@ class Operation:
 		self.val = val
 
 	def __str__(self):
-		s = op + "-" + key + "-" + str(val)
+		s = self.op + "-" + self.key + "-" + str(self.val)
 		return s
 
 def parse_op(op_str):
 	op_arr = str.split("-", 2)
 	val = json.loads(op_arr[2])
 	return Operation(op_arr[0], op_arr[1], val)
+
+class Ballot:
+	def __init__(self, ballot_num, op):
+		self.num = ballot_num
+		self.val = op
+		self.acceptance = {}
+
+	def __eq__(self, rhs):
+		return self.num == rhs.num
+
+	def __lt__(self, rhs):
+		return self.num < rhs.num
+
+	def __gt__(self, rhs):
+		return self.num > rhs.num
 
 class Block:
 	def __init__(self, op, prev, tag=0):
@@ -32,13 +47,14 @@ class Block:
 	def __str__(self):
 		tag = "tentative" if self.tag == 0 else "decided"
 		s = "\top: {}\n\thash: {}\n\tnonce: {}\n\ttag: {}".format(self.op, self.prev, self.nonce, tag)
+		return s
 
 	def concat(self):
 		return str(self.op) + self.nonce + self.prev
 
 	def difficulty_check(self, nonce):
 		hasher = sha256()
-		hasher.update(bytes(str(self.op) + nonce), "utf-8")
+		hasher.update(bytes(str(self.op) + nonce, "utf-8"))
 		block_hash = hasher.hexdigest()
 		dig = block_hash[-1]
 		for i in range(3):
@@ -87,34 +103,64 @@ class Blockchain:
 		return s
 
 	def write_to_disk(self, save_file):
-		save = open(save_file, 'w')
+		save = open(save_file, 'wb')
 		pickle.dump(self.chain, save)
 		save.close()
 
-	def reconstruct_from_disk(self, save_file):
-		save = open(save_file, 'r')
+	def reconstruct_from_disk(self, save_file, print_val=False):
+		save = open(save_file, 'rb')
 		self.chain = pickle.load(save)
 		save.close()
 
 		db = Database()
 		for blk in self.chain:
-			db.dispatch(blk.op)
+			val = db.dispatch(blk.op)
+			if print_val:
+				print(val)
 
 		return db
 
 	def append(self, op, save_file=None):
-		prev_block = self.chain[-1]
+		prev_hash = ""
+		if len(self.chain) > 0:
+			prev_block = self.chain[-1]
 
-		hasher = sha256()
-		hasher.update(bytes(prev_block.concat(), "utf-8"))
-		prev_hash = hasher.hexdigest()
+			hasher = sha256()
+			hasher.update(bytes(prev_block.concat(), "utf-8"))
+			prev_hash = hasher.hexdigest()
 
 		new_block = Block(op, prev_hash)
 		self.chain.append(new_block)
 
-		if save is not None:
-			write_to_disk(save_file)
+		if save_file is not None:
+			self.write_to_disk(save_file)
 
+
+if __name__ == "__main__":
+	bc = Blockchain()
+
+	o1 = Operation("put", "alice", {"phone_number": "111-222-3333"})
+	o2 = Operation("get", "alice")
+	o3 = Operation("put", "charlie", {"phone_number": "111-111-1111"})
+	o4 = Operation("put", "wilbur", {"phone_number": "123-456-7890"})
+	o5 = Operation("get", "wilbur")
+	o6 = Operation("get", "alice")
+
+	bc.append(o1, "test_save.pkl")
+	bc.append(o2, "test_save.pkl")
+	bc.append(o3, "test_save.pkl")
+	bc.append(o4, "test_save.pkl")
+	bc.append(o5, "test_save.pkl")
+	bc.append(o6, "test_save.pkl")
+
+	print(bc)
+
+	bc_clone = Blockchain()
+
+	db = bc_clone.reconstruct_from_disk("test_save.pkl", True)
+
+	print(bc_clone)
+	print(db)
 
 
 
