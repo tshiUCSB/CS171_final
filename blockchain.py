@@ -1,22 +1,35 @@
 # definition of blockchain data structure
 
 from hashlib import sha256
+import json
 
 class Operation:
-	def __init__(self, op, key, val=None):
+	def __init__(self, op, key, val={}):
 		self.op = op
 		self.key = key
 		self.val = val
+
+	def __str__(self):
+		s = op + "-" + key + "-" + str(val)
+		return s
+
+def parse_op(op_str):
+	op_arr = str.split("-", 2)
+	val = json.loads(op_arr[2])
+	return Operation(op_arr[0], op_arr[1], val)
 
 class Block:
 	def __init__(self, op, prev):
 		self.op = op
 		self.prev = prev
 		self.nonce = self.calc_nonce()
+		# 0: tentative; 1: decided
+		self.tag = 0
 
 	def difficulty_check(self, nonce):
 		hasher = sha256()
-		hasher.update()
+		hasher.update(bytes(str(self.op) + nonce), "utf-8")
+		block_hash = hasher.hexdigest()
 		dig = block_hash[-1]
 		for i in range(3):
 			if dig == str(i):
@@ -37,6 +50,8 @@ class Block:
 			if n is not None:
 				return n
 
+		return None
+
 	def calc_nonce(self, max_len=10):
 		poss_chars = (" !\"#$%&'()*+-,-./"
 			"0123456789"
@@ -50,7 +65,7 @@ class Block:
 
 class Blockchain:
 	def __init__(self):
-		self.head = Block()
+		self.head = None
 		self.tail = head
 		self.it = head
 
