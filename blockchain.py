@@ -4,7 +4,7 @@ from hashlib import sha256
 import json
 import pickle
 
-from database import Database
+from database import KV_Store
 
 class Operation:
 	def __init__(self, op, key, val={}):
@@ -22,19 +22,26 @@ def parse_op(op_str):
 	return Operation(op_arr[0], op_arr[1], val)
 
 class Ballot:
-	def __init__(self, ballot_num, op):
+	def __init__(self, ballot_num, op, depth):
 		self.num = ballot_num
 		self.val = op
+		self.depth = depth
 		self.acceptance = set()
 
 	def __eq__(self, rhs):
-		return self.num == rhs.num
+		if self.depth == rhs.depth:
+			return self.num == rhs.num
+		return False
 
 	def __lt__(self, rhs):
-		return self.num < rhs.num
+		if self.depth == rhs.depth:
+			return self.num < rhs.num
+		return self.depth < rhs.depth
 
 	def __gt__(self, rhs):
-		return self.num > rhs.num
+		if self.depth == rhs.depth:
+			return self.num > rhs.num
+		return self.depth > rhs.depth
 
 class Block:
 	def __init__(self, op, prev, tag=0):
@@ -112,7 +119,7 @@ class Blockchain:
 		self.chain = pickle.load(save)
 		save.close()
 
-		db = Database()
+		db = KV_Store()
 		for blk in self.chain:
 			val = db.dispatch(blk.op)
 			if print_val:

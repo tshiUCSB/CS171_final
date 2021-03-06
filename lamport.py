@@ -1,6 +1,6 @@
 # definition of totally ordered lamport clock
 
-class Lamport_clock:
+class Lamport_Clock:
 	def __init__(self, process_id, local_clock=0):
 		self.local_clock = int(local_clock)
 		self.process_id = int(process_id)

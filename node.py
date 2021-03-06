@@ -8,8 +8,8 @@ import sys
 import threading
 
 from blockchain import Blockchain
-from database import Database
-from lamport import Lamport_clock
+from database import KV_Store
+from lamport import Lamport_Clock
 from queue import Queue
 
 def logger(content, log=True):
@@ -55,6 +55,9 @@ def broadcast_msg(msg):
 def send_msg(pid, sock, msg):
 	sock.sendall(bytes(msg, "utf-8"))
 	logger("sent to {}\n\tmsg: {}".format(pid, msg))
+
+def parse_commands(cmd):
+	print("invalid input")
 
 def get_user_input(config):
 	global gb_vars
@@ -107,8 +110,10 @@ if __name__ == "__main__":
 			"ballot": Lamport_clock(0),
 			"val": None
 		},
+		"bc": Blockchain(),
+		"db": KV_Store(),
 		"exit_flag": False,
-		"lamport_clock": Lamport_clock(int(PROCESS_ID)),
+		"clock": Lamport_Clock(int(PROCESS_ID)),
 		"locks": {},
 		"sock_dict": {}
 	}

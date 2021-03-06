@@ -36,9 +36,16 @@ def handle_exit():
 	sys.stdout.flush()
 	os._exit(0)
 
+def await_msg(sock):
+	data = sock.recv(1024)
+	if not data:
+		return
+
 def send_msg(pid, sock, msg):
 	sock.sendall(bytes(msg, "utf-8"))
 	logger("sent to {}\n\tmsg: {}".format(pid, msg))
+
+	await_msg(sock);
 
 def get_user_input(config):
 	global gb_vars

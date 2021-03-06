@@ -2,7 +2,7 @@
 
 from threading import Lock
 
-class Database:
+class KV_Store:
 	def __init__(self):
 		self.store = {}
 		self.lock = Lock()
