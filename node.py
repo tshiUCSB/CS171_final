@@ -28,7 +28,12 @@ def connect_clients(config):
 			sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 			sock.connect((socket.gethostname(), port))
 
-			sock_dict[pid] = sock
+			sock_info = {
+				"sock": sock,
+				"functional": True,
+				"addr": 0
+			}
+			sock_dict[pid] = sock_info
 
 	return sock_dict
 
@@ -56,8 +61,45 @@ def send_msg(pid, sock, msg):
 	sock.sendall(bytes(msg, "utf-8"))
 	logger("sent to {}\n\tmsg: {}".format(pid, msg))
 
-def parse_commands(cmd):
-	print("invalid input")
+def parse_command(cmd):
+	global gb_vars
+
+	cmd_lst = cmd.split("(")
+	func = cmd_lst[0]
+
+	if func == "failProcess":
+		handle_exit()
+
+	elif func == "printBlockchain":
+		logger(gb_vars["bc"])
+	elif func == "printKVStore":
+		logger(gb_vars["db"])
+	elif func == "printQueue":
+		logger(gb_vars["queue"])
+
+	elif func == "failLink" or func == "fixLink":
+		if len(cmd_lst) < 2:
+			print("no arguments provided for " + func)
+			return
+
+		args = cmd_lst[1][ :-1].split(",")
+		if len(args) != 2:
+			print("expected 2 arguments for " + func + ", received " + str(len(args)))
+			return
+
+		if args[0] != PROCESS_ID:
+			print("source argument {} is not the current process {}".format(args[0], PROCESS_ID))
+			return
+
+		if args[1] == PROCESS_ID:
+			print("destination argument cannot be current process " + PROCESS_ID)
+			return
+
+		functional = False if func == "failLink" else fix_link
+		gb_vars["sock_dict"][args[1]]["functional"] = functional
+
+	else:
+		print("invalid input")
 
 def get_user_input(config):
 	global gb_vars
@@ -84,7 +126,7 @@ def get_user_input(config):
 				threading.Thread(target=send_msg, args=(pid, gb_vars["sock_dict"][pid], tmp[1])).start()
 
 		else:
-			print("invalid input")
+			parse_command(user_input)
 
 def respond(stream, addr):
 	global gb_vars
@@ -115,6 +157,7 @@ if __name__ == "__main__":
 		"exit_flag": False,
 		"clock": Lamport_Clock(int(PROCESS_ID)),
 		"locks": {},
+		"queue": Queue(),
 		"sock_dict": {}
 	}
 
