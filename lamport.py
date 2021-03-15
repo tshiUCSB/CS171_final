@@ -27,8 +27,25 @@ class Lamport_Clock:
 	def __str__(self):
 		return "{}:{}".format(str(self.local_clock), str(self.process_id))
 
+	def __dict__(self):
+		return {
+			"clock": self.local_clock,
+			"pid": self.process_id
+		}
+
 	def update_clock(self, recv_clock):
-		self.local_clock = max(self.local_clock, recv_clock.local_clock) + 1
+		recv_local = 0
+		if isinstance(recv_clock, dict):
+			recv_local = recv_clock["clock"]
+		elif isinstance(recv_clock, int):
+			recv_local = recv_clock
+		elif isinstance(recv_clock, Lamport_Clock):
+			recv_local = recv_clock.local_clock
+
+		self.local_clock = max(self.local_clock, recv_local) + 1
 
 	def increment_clock(self):
 		self.local_clock += 1
+
+	def set_pid(self, pid):
+		self.process_id = pid

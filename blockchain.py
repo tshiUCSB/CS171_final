@@ -16,15 +16,24 @@ class Operation:
 		s = self.op + "-" + self.key + "-" + str(self.val)
 		return s
 
+	def __dict__(self):
+		content = {
+			"op": op,
+			"key": key
+		}
+		if val is not None:
+			content["val"] = val
+		return content
+
 def parse_op(op_str):
 	op_arr = str.split("-", 2)
 	val = json.loads(op_arr[2])
 	return Operation(op_arr[0], op_arr[1], val)
 
 class Ballot:
-	def __init__(self, ballot_num, op, depth):
+	def __init__(self, ballot_num, val, depth=0):
 		self.num = ballot_num
-		self.val = op
+		self.val = val
 		self.depth = depth
 		self.acceptance = set()
 
@@ -44,15 +53,14 @@ class Ballot:
 		return self.depth > rhs.depth
 
 class Block:
-	def __init__(self, op, prev, tag=0):
+	def __init__(self, op, prev, decided=False):
 		self.op = op
 		self.prev = prev
 		self.nonce = self.calc_nonce()
-		# 0: tentative; 1: decided
-		self.tag = tag
+		self.tag = decided
 
 	def __str__(self):
-		tag = "tentative" if self.tag == 0 else "decided"
+		tag = "tentative" if self.tag is False else "decided"
 		s = "\top: {}\n\thash: {}\n\tnonce: {}\n\ttag: {}".format(self.op, self.prev, self.nonce, tag)
 		return s
 
@@ -95,6 +103,13 @@ class Block:
 			"{|}~")
 
 		return self.calc_nonce_helper("", poss_chars, max_len)
+
+	def __dict__(self):
+		return {
+			"op": vars(self.op),
+			"prev": self.prev,
+			"nonce": self.nonce
+		}
 
 class Blockchain:
 	def __init__(self):
@@ -142,6 +157,12 @@ class Blockchain:
 		if save_file is not None:
 			self.write_to_disk(save_file)
 
+	def __dict__(self):
+		lst = [vars(self.chain[i]) for i in range(len(self.chain))]
+		return {"chain": lst}
+
+	def __len__(self):
+		return len(self.chain)
 
 if __name__ == "__main__":
 	bc = Blockchain()

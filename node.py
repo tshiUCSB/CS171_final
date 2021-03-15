@@ -19,23 +19,22 @@ def logger(content, log=True):
 		print(PROCESS_ID + ": " + content)
 
 def connect_clients(config):
-	global PROCESS_ID
-	sock_dict = {}
+	global gb_vars
 
 	for pid in config:
-		if pid != PROCESS_ID:
+		if pid != gb_vars["pid"]:
 			port = config[pid]
 			sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 			sock.connect((socket.gethostname(), port))
 
-			sock_info = {
-				"sock": sock,
-				"functional": True,
-				"addr": 0
-			}
-			sock_dict[pid] = sock_info
+			gb_vars["sock_dict"][pid]["sock"] = sock
 
-	return sock_dict
+			pid_msg = {
+				"opcode": "PID",
+				"data": gb_vars["pid"]
+			}
+			pid_msg = json.dumps(pid_msg)
+			send_msg(pid, sock, pid_msg)
 
 def handle_exit():
 	global gb_vars
@@ -47,18 +46,23 @@ def handle_exit():
 
 def broadcast_msg(msg):
 	global gb_vars
-	global PROCESS_ID
 
 	for pid in gb_vars["sock_dict"]:
-		if pid == PROCESS_ID:
+		if pid == gb_vars["pid"]:
 			continue
-		sock = gb_vars["sock_dict"][pid]
+		sock = gb_vars["sock_dict"][pid]["sock"]
 		sock.sendall(bytes(msg, "utf-8"))
+
+	gb_vars["clock"].increment_clock()
 
 	logger("broadcasted to all\n\tmsg: {}".format(msg))
 
 def send_msg(pid, sock, msg):
+	global gb_vars
+
 	sock.sendall(bytes(msg, "utf-8"))
+	gb_vars["clock"].increment_clock()
+
 	logger("sent to {}\n\tmsg: {}".format(pid, msg))
 
 def parse_command(cmd):
@@ -68,6 +72,7 @@ def parse_command(cmd):
 	func = cmd_lst[0]
 
 	if func == "failProcess":
+		logger("process failed")
 		handle_exit()
 
 	elif func == "printBlockchain":
@@ -82,7 +87,7 @@ def parse_command(cmd):
 			print("no arguments provided for " + func)
 			return
 
-		args = cmd_lst[1][ :-1].split(",")
+		args = cmd_lst[1][ :-1].split(", ")
 		if len(args) != 2:
 			print("expected 2 arguments for " + func + ", received " + str(len(args)))
 			return
@@ -95,8 +100,13 @@ def parse_command(cmd):
 			print("destination argument cannot be current process " + PROCESS_ID)
 			return
 
-		functional = False if func == "failLink" else fix_link
+		functional = False if func == "failLink" else True
 		gb_vars["sock_dict"][args[1]]["functional"] = functional
+
+		if functional:
+			logger("restablished connection with " + args[1])
+		else:
+			logger("connection to {} failed".format(args[1]))
 
 	else:
 		print("invalid input")
@@ -108,8 +118,8 @@ def get_user_input(config):
 		user_input = input()
 		input_arr = user_input.split(" ", 1)
 
-		if user_input == "connect" and len(gb_vars["sock_dict"]) < 1:
-			gb_vars["sock_dict"] = connect_clients(config)
+		if user_input == "connect":
+			connect_clients(config)
 
 		elif user_input == "exit":
 			handle_exit()
@@ -128,6 +138,53 @@ def get_user_input(config):
 		else:
 			parse_command(user_input)
 
+def is_leader():
+	global gb_vars
+	return gb_vars["pid"] == gb_vars["leader"]
+
+def match_pid(stream, addr, data):
+	global gb_vars
+
+	pid = data["data"]
+	gb_vars["sock_dict"][pid]["addr"] = addr
+	gb_vars["addr_pid_map"][str(addr)] = pid
+
+	# logger("{} : {}".format(addr, pid))
+
+def prep_election(data):
+
+
+def acknowledge_ballot(data):
+
+
+def forward_to_leader(data):
+	global gb_vars
+
+	data["req_num"] = key
+	msg = {
+		"opcode": "PROP",
+		"data": data
+	}
+	msg = json.dumps(msg)
+
+	lead_sock = gb_vars["sock_dict"][gb_vars["leader"]]["sock"]
+	send_msg(gb_vars["leader"], lead_sock, msg)
+
+def handle_proposed_op(stream, addr, data):
+	global gb_vars
+
+	key = str(gb_vars["clock"])
+	if "req_num" not in data:
+		gb_vars["client_reqs"][key] = stream
+
+	if gb_vars["leader"] is None:
+		prep_election()
+	elif is_leader():
+		acknowledge_ballot()
+	else:
+		forward_to_leader(key, data)
+
+
 def respond(stream, addr):
 	global gb_vars
 
@@ -141,22 +198,45 @@ def respond(stream, addr):
 			logger("closed stream from {}".format(addr))
 			break
 
+		data = data.decode()
 		logger("received from {}\n\tdata: {}".format(addr, data))
 
+		data = json.loads(data)
+
+		if "clock" in data:
+			gb_vars["clock"].update_clock(data["clock"])
+		else:
+			gb_vars["clock"].increment_clock()
+		
+		opcode = data["opcode"]
+		opcode_dict = {
+			"PID": match_pid,
+			"PROP": handle_proposed_op
+		}
+		if opcode not in opcode_dict:
+			logger("invalid opcode: " + opcode)
+			continue
+
+		threading.Thread(target=opcode_dict[opcode], args=(stream, addr, data["data"])).start()
 
 if __name__ == "__main__":
 	PROCESS_ID = sys.argv[1]
 
 	gb_vars = {
 		"accepted": {
-			"ballot": Lamport_clock(0),
+			"ballot": Lamport_Clock(0),
 			"val": None
 		},
+		"addr_pid_map": {},
+		"ballot_num": Lamport_Clock(0),
 		"bc": Blockchain(),
+		"client_reqs": {},
+		"clock": Lamport_Clock(int(PROCESS_ID)),
 		"db": KV_Store(),
 		"exit_flag": False,
-		"clock": Lamport_Clock(int(PROCESS_ID)),
+		"leader": None,
 		"locks": {},
+		"pid": PROCESS_ID,
 		"queue": Queue(),
 		"sock_dict": {}
 	}
@@ -165,6 +245,16 @@ if __name__ == "__main__":
 	config_file = open(config_file_path, "r")
 	config = json.load(config_file)
 	config_file.close()
+
+	for pid in config:
+		if pid != PROCESS_ID:
+			port = config[pid]
+			sock_info = {
+				"sock": None,
+				"functional": True,
+				"addr": 0
+			}
+			gb_vars["sock_dict"][pid] = sock_info
 
 	in_port = config[PROCESS_ID]
 	in_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
