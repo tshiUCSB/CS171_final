@@ -58,26 +58,26 @@ def switch_leader(lead="1"):
 		gb_vars["sock"] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		gb_vars["sock"].connect((socket.gethostname(), port))
 
-def timeout(retry):
+def timeout(retry, opt):
 	global gb_vars
 	global config
 
 	sleep(gb_vars["timeout"][0])
-	if gb_vars["timeout"][1]:
+	if gb_vars["timeout"][1] and gb_vars["queue"][0] == opt:
 		logger("operation timed out after {} seconds".format(gb_vars["timeout"][0]))
 		if not retry:
-			req_operation(retry=True)
+			req_operation(retry=True, opt=opt)
 		else:
 			lead = get_rand_lead()
-			req_operation(retry=True, switch_lead=lead)
+			req_operation(retry=True, switch_lead=lead, opt=opt)
 
-def await_msg(sock, retry=False):
+def await_msg(sock, retry=False, opt=None):
 	global gb_vars
 	global config
 
 	if gb_vars["timeout"][0] is not None:
 		gb_vars["timeout"][1] = True
-		threading.Thread(target=timeout, args=(retry, )).start()
+		threading.Thread(target=timeout, args=(retry, opt)).start()
 
 		data = sock.recv(1024)
 
@@ -91,7 +91,7 @@ def await_msg(sock, retry=False):
 			lead = get_rand_lead()
 			req_operation(retry=False, switch_lead=lead)
 		return
-	if len(gb_vars["queue"]) != 0:
+	if (len(gb_vars["queue"])) != 0 and (opt is None or opt == gb_vars["queue"][0]):
 		gb_vars["queue"].pop(0)
 	data = data.decode()
 
@@ -104,15 +104,15 @@ def await_msg(sock, retry=False):
 	if len(gb_vars["queue"]) > 0:
 		req_operation()
 
-def send_msg(pid, sock, msg, retry=False):
+def send_msg(pid, sock, msg, retry=False, opt=None):
 	global gb_var
 
 	sock.sendall(bytes(msg, "utf-8"))
 	logger("sent to {}\n\tmsg: {}".format(pid, msg))
 
-	await_msg(sock, retry);
+	await_msg(sock, retry=retry, opt=opt);
 
-def req_operation(retry=False, switch_lead=None):
+def req_operation(retry=False, switch_lead=None, opt=None):
 	global gb_vars
 	global config
 
@@ -140,7 +140,8 @@ def req_operation(retry=False, switch_lead=None):
 	if switch_lead is not None:
 		switch_leader(lead=switch_lead)
 
-	op, key, val = gb_vars["queue"][0]
+	top = gb_vars["queue"][0]
+	op, key, val = top[0]
 
 	if isinstance(val, str):
 		val = json.loads(val)
@@ -160,7 +161,7 @@ def req_operation(retry=False, switch_lead=None):
 	}
 	msg = json.dumps(msg)
 
-	send_msg(lead, lead_sock, msg, retry)
+	send_msg(lead, lead_sock, msg, retry=retry, opt=top)
 
 
 def get_user_input(config):
@@ -202,7 +203,9 @@ def get_user_input(config):
 			if len(args) == 2:
 				args.append({})
 
-			gb_vars["queue"].append(args)
+			gb_vars["queue"].append((args, str(gb_vars["clock"])))
+			gb_vars["clock"].increment_clock()
+
 			if len(gb_vars["queue"]) == 1:
 				threading.Thread(target=req_operation).start()
 
@@ -221,7 +224,7 @@ if __name__ == "__main__":
 	gb_vars = {
 		"est_lead": None,
 		"exit_flag": False,
-		"lamport_clock": Lamport_Clock(int(PROCESS_ID)),
+		"clock": Lamport_Clock(int(PROCESS_ID)),
 		"locks": {},
 		"queue": [],
 		"sock": None,
