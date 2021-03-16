@@ -37,7 +37,7 @@ def connect_nodes(config):
 				"data": gb_vars["pid"]
 			}
 			pid_msg = json.dumps(pid_msg)
-			send_msg(pid, sock, pid_msg)
+			threading.Thread(target=send_msg, args=(pid, sock, pid_msg)).start()
 
 def handle_exit():
 	global gb_vars
@@ -157,7 +157,7 @@ def gather_acceptance(sock, data, pid):
 	accp_bal_num = Lamport_Clock(bal_num["pid"], bal_num["clock"])
 
 	if accp_bal_num != curr_bal.num:
-		logger("accepted ballot number {} doesn't match own ballot {}".format(prom_bal_num, curr_bal.num))
+		logger("accepted ballot number {} doesn't match own ballot {}".format(accp_bal_num, curr_bal.num))
 		return
 
 	curr_bal.acceptance.add(pid)
@@ -194,6 +194,9 @@ def handle_recv(sock, pid):
 
 def broadcast_msg(msg, recv=False):
 	global gb_vars
+	global delay
+
+	sleep(delay)
 
 	for pid in gb_vars["sock_dict"]:
 		if pid == gb_vars["pid"]:
@@ -213,6 +216,9 @@ def broadcast_msg(msg, recv=False):
 
 def send_msg(pid, sock, msg):
 	global gb_vars
+	global delay
+
+	sleep(delay)
 
 	if pid != "client" and not gb_vars["sock_dict"][pid]["functional"]:
 		logger("cannot send to {} due to failed link".format(pid))
@@ -348,7 +354,7 @@ def request_acceptance():
 		op.init_from_dict(gb_vars["queue"][0][0])
 		print(str(op))
 		# blk = gb_vars["bc"].append(op, "save_{}.pkl".format(gb_vars["pid"]))
-		blk = gb_vars["bc"].append(op)
+		blk = gb_vars["bc"].append(op, gb_vars["save_file"])
 		print(str(blk))
 		data["val"] = blk.to_dict()
 		bal.val = blk
@@ -373,6 +379,7 @@ def forward_to_leader(data):
 	}
 	msg = json.dumps(msg)
 
+	logger("forwarding operation to " + gb_vars["leader"])
 	lead_sock = gb_vars["sock_dict"][gb_vars["leader"]]["sock"]
 	send_msg(gb_vars["leader"], lead_sock, msg)
 
@@ -435,7 +442,10 @@ def handle_prep_ballot(stream, addr, data):
 		accp_dict = {}
 		accp_dict["bal_num"] = accp["bal_num"].to_dict()
 		if accp["val"] is not None:
-			accp_dict["val"] = accp["val"]
+			if isinstance(accp["val"], Block):
+				accp_dict["val"] = accp["val"].to_dict()
+			else:
+				accp_dict["val"] = accp["val"]
 
 		pid = gb_vars["addr_pid_map"][str(addr)]
 		gb_vars["leader"] = pid
@@ -467,12 +477,12 @@ def handle_accp_req(stream, addr, data):
 	if recv_bal > bal:
 		if "op" in data["val"]:
 			blk = Block("", d=data["val"])
-			accp["val"] = gb_vars["bc"].append_block(blk)
+			accp["val"] = gb_vars["bc"].append_block(blk, gb_vars["save_file"])
 		else:
 			accp["val"] = recv_bal.val
 
-		accp = gb_vars["accepted"]
 		accp["bal_num"] = recv_bal.num
+		accp["depth"] = recv_bal.depth
 
 		msg = {
 			"opcode": "ACCPD",
@@ -564,7 +574,8 @@ if __name__ == "__main__":
 	gb_vars = {
 		"accepted": {
 			"bal_num": Lamport_Clock(0),
-			"val": None
+			"val": None,
+			"depth": 0
 		},
 		"addr_pid_map": {},
 		"ballot": Ballot(Lamport_Clock(0), None),
@@ -580,6 +591,7 @@ if __name__ == "__main__":
 		"pid": PROCESS_ID,
 		"phase": 0,
 		"queue": [],
+		"save_file": "saves/save_{}.pkl".format(PROCESS_ID),
 		"sock_dict": {}
 	}
 

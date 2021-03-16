@@ -17,7 +17,7 @@ def logger(content, log=True):
 	global PROCESS_ID
 
 	if log:
-		print("CLIENT" + PROCESS_ID + ": " + content)
+		print("CLIENT{}: {}".format(PROCESS_ID, content))
 
 def connect_clients(config):
 	global PROCESS_ID
@@ -36,19 +36,27 @@ def handle_exit():
 	global gb_vars
 
 	gb_vars["exit_flag"] = False
+	if gb_vars["sock"] is not None:
+		gb_vars["sock"].close()
 	sys.stdout.flush()
 	os._exit(0)
 
+def get_rand_lead():
+	global config
+	return list(config.keys())[randint(1, len(config)) - 1]
+
 def switch_leader(lead="1"):
+	global gb_vars
+
 	if gb_vars["est_lead"] != lead:
+
 		logger("switching connection from {} to {}".format(gb_vars["est_lead"], lead))
 
 		gb_vars["est_lead"] = lead
 
 		port = config[gb_vars["est_lead"]]
-		sock.close()
-		sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		sock.connect((socket.gethostname(), port))
+		gb_vars["sock"] = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		gb_vars["sock"].connect((socket.gethostname(), port))
 
 def timeout(retry):
 	global gb_vars
@@ -60,7 +68,7 @@ def timeout(retry):
 		if not retry:
 			req_operation(retry=True)
 		else:
-			lead = config.keys()[randint(1, len(config))]
+			lead = get_rand_lead()
 			req_operation(retry=True, switch_lead=lead)
 
 def await_msg(sock, retry=False):
@@ -71,25 +79,31 @@ def await_msg(sock, retry=False):
 		gb_vars["timeout"][1] = True
 		threading.Thread(target=timeout, args=(retry, )).start()
 
-	data = sock.recv(1024)
+		data = sock.recv(1024)
+
 	gb_vars["timeout"][1] = False
+
 	if not data:
-		logger("connection to {} closed, retrying request".format(gb_vars["est_lead"]))
-		config.pop(gb_vars["est_lead"])
-		lead = config.keys()[randint(1, len(config))]
-		req_operation(retry=False, switch_lead=lead)
+		logger("connection to {} closed".format(gb_vars["est_lead"]))
+
+		if len(gb_vars["queue"]) > 0:
+			config.pop(gb_vars["est_lead"])
+			lead = get_rand_lead()
+			req_operation(retry=False, switch_lead=lead)
 		return
 
 	gb_vars["queue"].pop(0)
-	data.decode()
+	data = data.decode()
 
 	logger("received {}".format(data))
 
 	data = json.loads(data)
-	if "leader" in data:
-		switch_leader(lead=data["leader"])
+	if "leader" in data["data"]:
+		switch_leader(lead=data["data"]["leader"])
 
 def send_msg(pid, sock, msg, retry=False):
+	global gb_var
+
 	sock.sendall(bytes(msg, "utf-8"))
 	logger("sent to {}\n\tmsg: {}".format(pid, msg))
 
@@ -99,15 +113,19 @@ def req_operation(retry=False, switch_lead=None):
 	global gb_vars
 	global config
 
+	if len(gb_vars["queue"]) < 1:
+		return
+
 	lead = gb_vars["est_lead"]
 	lead_sock = None
 
 	if lead is None:
-		# lead = config.keys()[randint(1, len(config))]
-		lead = "1"
+		lead = get_rand_lead()
+		# lead = "1"
 		gb_vars["est_lead"] = lead
 
 		logger("connecting to " + lead)
+
 	
 		lead_port = config[lead]
 		lead_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -193,19 +211,22 @@ if __name__ == "__main__":
 	PROCESS_ID = sys.argv[1]
 	PORT = sys.argv[2]
 	
-	timeout = [None, False]
+	t_out = [None, False]
 	if len(sys.argv) > 3:
-		timeout[0] = int(sys.argv[3])
+		t_out[0] = int(sys.argv[3])
 
 	gb_vars = {
 		"est_lead": None,
 		"exit_flag": False,
 		"lamport_clock": Lamport_Clock(int(PROCESS_ID)),
+		"locks": {},
 		"queue": [],
 		"sock": None,
 		"sock_dict": {},
-		"timeout": timeout
+		"timeout": t_out
 	}
+
+	gb_vars["locks"]["sock"] = threading.Lock()
 
 	config_file_path = "config.json"
 	config_file = open(config_file_path, "r")
