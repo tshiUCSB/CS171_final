@@ -236,13 +236,14 @@ def handle_proposed_op(stream, addr, data):
 	key = str(gb_vars["clock"])
 	if "req_num" not in data:
 		gb_vars["client_reqs"][key] = stream
+		data["req_num"] = key
 
-	data["req_num"] = key
-
-	if gb_vars["leader"] is None:
+	if gb_vars["leader"] is None and gb_vars["phase"] == 0:
 		prep_election(data)
-	elif is_leader():
+	elif is_leader() and len(gb_vars["queue"]) == 0:
 		request_acceptance(data)
+	elif is_leader() or gb_vars["phase"] == 1:
+		gb_vars["queue"].append(data)
 	else:
 		forward_to_leader(data)
 

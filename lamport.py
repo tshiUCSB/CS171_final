@@ -7,12 +7,16 @@ class Lamport_Clock:
 
 	def __eq__(self, rhs):
 		if not isinstance(rhs, Lamport_Clock):
+			print(isinstance(rhs, Lamport_Clock))
 			return False
 		return self.local_clock == rhs.local_clock and self.process_id == rhs.process_id
 
 	def __ne__(self, rhs):
 		if not isinstance(rhs, Lamport_Clock):
+			print(isinstance(rhs, Lamport_Clock))
 			return True
+		print("clock: {}".format(self.local_clock != rhs.local_clock))
+		print("pid: {}".format(self.process_id != rhs.process_id))
 		return self.local_clock != rhs.local_clock or self.process_id != rhs.process_id
 
 	def __lt__(self, rhs):
