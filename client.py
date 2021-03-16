@@ -42,6 +42,9 @@ def await_msg(sock):
 	data = sock.recv(1024)
 	if not data:
 		return
+	data.decode()
+
+	logger("received {}".format(data))
 
 def send_msg(pid, sock, msg):
 	sock.sendall(bytes(msg, "utf-8"))
@@ -66,6 +69,9 @@ def req_operation(config, op, key, val={}):
 		gb_vars["sock"] = lead_sock
 	else:
 		lead_sock = gb_vars["sock"]
+
+	if isinstance(val, str):
+		val = json.loads(val)
 
 	content = {
 		"op": op,

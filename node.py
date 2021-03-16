@@ -18,7 +18,7 @@ def logger(content, log=True):
 	global PROCESS_ID
 
 	if log:
-		print(PROCESS_ID + ": " + content)
+		print("{}: {}".format(PROCESS_ID, content))
 
 def connect_clients(config):
 	global gb_vars
@@ -85,6 +85,92 @@ def gather_promise(sock, data, pid):
 		if len(gb_vars["queue"]) > 0:
 			request_acceptance()
 
+def reply_client(req_num, res):
+	global gb_vars
+
+	sock = gb_vars["client_reqs"][req_num]
+	opcode = "ACK" if res is None else "VAL"
+	if res is None:
+		res = {}
+
+	data = {
+		"result": res,
+		"leader": gb_vars["leader"]
+	}
+
+	gb_vars["client_reqs"].pop(req_num)
+
+	msg = {
+		"opcode": opcode,
+		"data": data
+	}
+	msg = json.dumps(msg)
+	send_msg("client", sock, msg)
+
+def decide_val(data):
+	global gb_vars
+
+	bal = gb_vars["ballot"]
+	if isinstance(bal.val, Block):
+		bal.val.decided = True
+
+		res = gb_vars["db"].dispatch(bal.val.op)
+		if res is None and bal.val.op.op == "get":
+			res = "NO_KEY"
+
+		op = gb_vars["queue"].pop(0)
+		req_num = op[1]
+		logger("request number: {} in {}".format(req_num, gb_vars["client_reqs"]))
+		if req_num in gb_vars["client_reqs"]:
+			threading.Thread(target=reply_client, args=(req_num, res)).start()
+		else:
+			data["req_num"] = req_num
+
+	msg = {
+		"opcode": "DEC",
+		"data": data
+	}
+	msg = json.dumps(msg)
+	broadcast_msg(msg)
+
+	logger("decided on {}\n\tvalue: {}".format(bal.num, bal.val))
+
+	bal.val = None
+	bal.acceptance.clear()
+	bal.max_num = bal.num
+	if len(gb_vars["queue"]) > 0:
+		request_acceptance()
+	else:
+		gb_vars["phase"] = 0
+
+def gather_acceptance(sock, data, pid):
+	global gb_vars
+
+	if gb_vars["phase"] != 2:
+		return
+
+	gb_vars["locks"]["ballot"].acquire()
+
+	bal_num = data["bal_num"]
+	curr_bal= gb_vars["ballot"]
+	accp_bal_num = Lamport_Clock(bal_num["pid"], bal_num["clock"])
+
+	if accp_bal_num != curr_bal.num:
+		logger("accepted ballot number {} doesn't match own ballot {}".format(prom_bal_num, curr_bal.num))
+		return
+
+	curr_bal.acceptance.add(pid)
+	logger("received {} / {} acceptances".format(len(curr_bal.acceptance), len(gb_vars["sock_dict"])))
+
+	gb_vars["locks"]["ballot"].release()
+
+	if len(curr_bal.acceptance) > len(gb_vars["sock_dict"]) // 2:
+		logger("received acceptance from majority, transitioning to decision phase")
+		
+		curr_bal.acceptance.clear()
+
+		decide_val(data)
+
 def handle_recv(sock, pid):
 	if not gb_vars["sock_dict"][pid]["functional"]:
 		logger("cannot receive from {} due to failed link".format(pid))
@@ -99,7 +185,8 @@ def handle_recv(sock, pid):
 
 	opcode = data["opcode"]
 	opcode_dict = {
-		"PROM": gather_promise
+		"PROM": gather_promise,
+		"ACCPD": gather_acceptance
 	}
 
 	threading.Thread(target=opcode_dict[opcode], args=(sock, data["data"], pid)).start()
@@ -126,7 +213,7 @@ def broadcast_msg(msg, recv=False):
 def send_msg(pid, sock, msg):
 	global gb_vars
 
-	if not gb_vars["sock_dict"][pid]["functional"]:
+	if pid != "client" and not gb_vars["sock_dict"][pid]["functional"]:
 		logger("cannot send to {} due to failed link".format(pid))
 		return
 
@@ -247,19 +334,23 @@ def prep_election():
 def request_acceptance():
 	global gb_vars
 
+	gb_vars["phase"] = 2
+
 	bal = gb_vars["ballot"]
+	bal.depth = len(gb_vars["bc"]) + 1
 	data = {
 		"bal_num": bal.num.to_dict(),
 		"depth": bal.depth
 	}
 	if bal.val is None:
 		op = Operation("", "")
-		op.init_from_dict(gb_vars["queue"][0])
+		op.init_from_dict(gb_vars["queue"][0][0])
 		print(str(op))
 		# blk = gb_vars["bc"].append(op, "save_{}.pkl".format(gb_vars["pid"]))
 		blk = gb_vars["bc"].append(op)
 		print(str(blk))
 		data["val"] = blk.to_dict()
+		bal.val = blk
 	else:
 		data["val"] = bal.val
 
@@ -295,11 +386,11 @@ def handle_proposed_op(stream, addr, data):
 	if not is_leader() and gb_vars["leader"] is not None:
 		forward_to_leader(data)
 	else:
-		gb_vars["queue"].append(data)
+		gb_vars["queue"].append((data, data["req_num"]))
 
 		if gb_vars["leader"] is None:
 			prep_election()
-		elif is_leader() and len(gb_vars["queue"]) == 0:
+		elif is_leader() and len(gb_vars["queue"]) == 1:
 			request_acceptance()
 	# if gb_vars["leader"] is None:
 	# 	if gb_vars["phase"] == 0:
@@ -319,6 +410,9 @@ def handle_prep_ballot(stream, addr, data):
 	
 	if prep_bal > curr_bal:
 		gb_vars["ballot"].num = prep_bal.num
+
+		pid = gb_vars["addr_pid_map"][str(addr)]
+		gb_vars["leader"] = pid
 
 		accp = gb_vars["accepted"]
 		accp_dict = {}
@@ -350,7 +444,54 @@ def handle_accp_req(stream, addr, data):
 	num = Lamport_Clock(0)
 	num.init_from_dict(data["bal_num"])
 	recv_bal = Ballot(num, None, data["depth"])
-	logger("accept {}?".format(recv_bal.num))
+	bal = gb_vars["ballot"]
+	accp = gb_vars["accepted"]
+
+	if recv_bal > bal:
+		if "op" in data["val"]:
+			blk = Block("", d=data["val"])
+			accp["val"] = gb_vars["bc"].append_block(blk)
+		else:
+			accp["val"] = recv_bal.val
+
+		accp = gb_vars["accepted"]
+		accp["bal_num"] = recv_bal.num
+
+		msg = {
+			"opcode": "ACCPD",
+			"data": data
+		}
+		msg = json.dumps(msg)
+
+		pid = gb_vars["addr_pid_map"][str(addr)]
+		logger("accepted {}".format(recv_bal.num))
+		send_msg(pid, stream, msg)
+	else:
+		logger("refused to accept {}".format(recv_bal.num))
+
+def handle_decision(stream, addr, data):
+	global gb_vars
+
+	num = Lamport_Clock(0)
+	num.init_from_dict(data["bal_num"])
+	accp_num = gb_vars["accepted"]["bal_num"]
+	if num != accp_num:
+		logger("accepted ballot {} is not the same as decided ballot {}".format(accp_num, num))
+		return
+
+	accp = gb_vars["accepted"]
+	if isinstance(accp["val"], Block):
+		accp["val"].decided = True
+
+		res = gb_vars["db"].dispatch(accp["val"].op)
+		if res is None and accp["val"].op.op == "get":
+			res = "NO_KEY"
+
+		req_num = ""
+		if "req_num" in data:
+			req_num = data["req_num"]
+		if req_num in gb_vars["client_reqs"]:
+			threading.Thread(target=reply_client, args=(req_num, res)).start()
 
 def respond(stream, addr):
 	global gb_vars
@@ -386,7 +527,8 @@ def respond(stream, addr):
 			"PID": match_pid,
 			"PROP": handle_proposed_op,
 			"PREP": handle_prep_ballot,
-			"ACCP": handle_accp_req
+			"ACCP": handle_accp_req,
+			"DEC": handle_decision
 		}
 		if opcode not in opcode_dict:
 			logger("invalid opcode: " + opcode)

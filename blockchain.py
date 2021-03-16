@@ -35,7 +35,7 @@ def parse_op(op_str):
 	return Operation(op_arr[0], op_arr[1], val)
 
 class Ballot:
-	def __init__(self, ballot_num, val, depth=0):
+	def __init__(self, ballot_num, val=None, depth=0):
 		self.num = ballot_num
 		self.val = val
 		self.depth = int(depth)
@@ -64,11 +64,14 @@ class Ballot:
 		self.val = d["val"]
 
 class Block:
-	def __init__(self, op, prev="", decided=False):
-		self.op = op
-		self.prev = prev
-		self.nonce = self.calc_nonce()
-		self.decided = decided
+	def __init__(self, op, prev="", decided=False, d={}):
+		if len(d) == 0:
+			self.op = op
+			self.prev = prev
+			self.nonce = self.calc_nonce()
+			self.decided = decided
+		else:
+			self.init_from_dict(d)
 
 	def __str__(self):
 		tag = "tentative" if self.decided is False else "decided"
@@ -122,6 +125,12 @@ class Block:
 			"nonce": self.nonce
 		}
 
+	def init_from_dict(self, d):
+		self.op = Operation("", "")
+		self.op.init_from_dict(d["op"])
+		self.prev = d["prev"]
+		self.nonce = d["nonce"]
+
 class Blockchain:
 	def __init__(self):
 		self.chain = []
@@ -172,6 +181,14 @@ class Blockchain:
 			self.write_to_disk(save_file)
 
 		return new_block
+
+	def append_block(self, blk, save_file=None):
+		self.chain.append(blk)
+
+		if save_file is not None:
+			self.write_to_disk(save_file)
+
+		return blk
 
 	def to_dict(self):
 		lst = [self.chain[i].to_dict() for i in range(len(self.chain))]
