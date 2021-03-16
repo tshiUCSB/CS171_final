@@ -403,6 +403,22 @@ def handle_proposed_op(stream, addr, data):
 	# else:
 	# 	forward_to_leader(data)
 
+def handle_lead_req(stream, addr, data):
+	global gb_vars
+
+	key = str(gb_vars["clock"])
+	if "req_num" not in data:
+		gb_vars["client_reqs"][key] = stream
+		data["req_num"] = key
+
+	gb_vars["queue"].append((data, data["req_num"]))
+
+	if not is_leader():
+		prep_election()
+	elif is_leader() and len(gb_vars["queue"]) == 1:
+		request_acceptance()
+
+
 def handle_prep_ballot(stream, addr, data):
 	global gb_vars
 
@@ -527,6 +543,7 @@ def respond(stream, addr):
 		opcode_dict = {
 			"PID": match_pid,
 			"PROP": handle_proposed_op,
+			"LEAD": handle_lead_req,
 			"PREP": handle_prep_ballot,
 			"ACCP": handle_accp_req,
 			"DEC": handle_decision
