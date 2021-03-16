@@ -35,7 +35,7 @@ class Ballot:
 	def __init__(self, ballot_num, val, depth=0):
 		self.num = ballot_num
 		self.val = val
-		self.depth = depth
+		self.depth = int(depth)
 		self.acceptance = set()
 		self.max_num = ballot_num
 
@@ -57,7 +57,7 @@ class Ballot:
 	def init_from_dict(self, d):
 		self.num = Lamport_Clock(d["bal_num"]["pid"], d["bal_num"]["clock"])
 		self.max_num = self.num
-		self.depth = d["depth"]
+		self.depth = int(d["depth"])
 		self.val = d["val"]
 
 class Block:

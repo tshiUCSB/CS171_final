@@ -57,12 +57,12 @@ def gather_promise(sock, data):
 
 	curr_bal.acceptance.add(bal_num["pid"])
 
-	# if "val" in data["accp"]:
-	# 	accp_bal = Ballot(0, 0).init_from_dict(data["accp"])
-	# 	if accp_bal > curr_bal:
-	# 		curr_bal.depth = accp_bal.depth
-	# 		curr_bal.max_num = accp_bal.num
-	# 		curr_bal.val = accp_bal.val
+	if "val" in data["accp"]:
+		accp_bal = Ballot(0, 0).init_from_dict(data["accp"])
+		if accp_bal > curr_bal:
+			curr_bal.depth = accp_bal.depth
+			curr_bal.max_num = accp_bal.num
+			curr_bal.val = accp_bal.val
 
 def handle_recv(sock, pid):
 	data = sock.recv(1024)
