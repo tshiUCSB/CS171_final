@@ -7,6 +7,8 @@ import socket
 import sys
 import threading
 
+from time import sleep
+
 from blockchain import Blockchain, Ballot
 from database import KV_Store
 from lamport import Lamport_Clock
@@ -44,8 +46,13 @@ def handle_exit():
 	gb_vars["in_sock"].close()
 	os._exit(0)
 
-def gather_promise(sock, data):
+def gather_promise(sock, data, pid):
 	global gb_vars
+
+	if gb_vars["phase"] != 1:
+		return
+
+	gb_vars["locks"]["ballot"].acquire()
 
 	bal_num = data["bal_num"]
 	curr_bal= gb_vars["ballot"]
@@ -55,8 +62,6 @@ def gather_promise(sock, data):
 		logger("promised ballot number {} doesn't match own ballot {}".format(prom_bal_num, curr_bal.num))
 		return
 
-	curr_bal.acceptance.add(bal_num["pid"])
-
 	if "val" in data["accp"]:
 		accp_bal = Ballot(0, 0).init_from_dict(data["accp"])
 		if accp_bal > curr_bal:
@@ -64,7 +69,26 @@ def gather_promise(sock, data):
 			curr_bal.max_num = accp_bal.num
 			curr_bal.val = accp_bal.val
 
+	curr_bal.acceptance.add(pid)
+	logger("received {} / {} promises".format(len(curr_bal.acceptance), len(gb_vars["sock_dict"])))
+
+	gb_vars["locks"]["ballot"].release()
+
+	if len(curr_bal.acceptance) > len(gb_vars["sock_dict"]) // 2:
+		logger("received promise from majority, transitioning to acceptance phase")
+		
+		curr_bal.acceptance.clear()
+		gb_vars["phase"] = 2
+		gb_vars["leader"] = gb_vars["pid"]
+
+		if len(gb_vars["queue"]) > 0:
+			request_acceptance()
+
 def handle_recv(sock, pid):
+	if not gb_vars["sock_dict"][pid]["functional"]:
+		logger("cannot receive from {} due to failed link".format(pid))
+		return
+
 	data = sock.recv(1024)
 	if not data:
 		return
@@ -77,13 +101,16 @@ def handle_recv(sock, pid):
 		"PROM": gather_promise
 	}
 
-	threading.Thread(target=opcode_dict[opcode], args=(sock, data["data"])).start()
+	threading.Thread(target=opcode_dict[opcode], args=(sock, data["data"], pid)).start()
 
 def broadcast_msg(msg, recv=False):
 	global gb_vars
 
 	for pid in gb_vars["sock_dict"]:
 		if pid == gb_vars["pid"]:
+			continue
+		if not gb_vars["sock_dict"][pid]["functional"]:
+			logger("cannot send to {} due to failed link".format(pid))
 			continue
 		sock = gb_vars["sock_dict"][pid]["sock"]
 		sock.sendall(bytes(msg, "utf-8"))
@@ -97,6 +124,10 @@ def broadcast_msg(msg, recv=False):
 
 def send_msg(pid, sock, msg):
 	global gb_vars
+
+	if not gb_vars["sock_dict"][pid]["functional"]:
+		logger("cannot send to {} due to failed link".format(pid))
+		return
 
 	sock.sendall(bytes(msg, "utf-8"))
 	gb_vars["clock"].increment_clock()
@@ -189,16 +220,16 @@ def match_pid(stream, addr, data):
 
 	# logger("{} : {}".format(addr, pid))
 
-def prep_election(data):
+def prep_election():
 	global gb_vars
 
 	gb_vars["phase"] = 1
-	gb_vars["queue"].append(data)
 
 	bal = gb_vars["ballot"]
 	bal.num.increment_clock()
 	bal.num.set_pid(gb_vars["pid"])
 	bal.depth = len(gb_vars["bc"]) + 1
+	bal.val = None
 
 	msg = {
 		"opcode": "PREP",
@@ -209,14 +240,13 @@ def prep_election(data):
 	}
 	msg = json.dumps(msg)
 
-	logger("prepping election for {}".format(bal.num))
+	logger("prepping election phase for {}".format(bal.num))
 	broadcast_msg(msg, True)
 
-def request_acceptance(data):
+def request_acceptance():
 	global gb_vars
 
-	gb_vars["queue"].append(data)
-	return
+	logger("requesting acceptance")
 
 def forward_to_leader(data):
 	global gb_vars
@@ -238,14 +268,24 @@ def handle_proposed_op(stream, addr, data):
 		gb_vars["client_reqs"][key] = stream
 		data["req_num"] = key
 
-	if gb_vars["leader"] is None and gb_vars["phase"] == 0:
-		prep_election(data)
-	elif is_leader() and len(gb_vars["queue"]) == 0:
-		request_acceptance(data)
-	elif is_leader() or gb_vars["phase"] == 1:
-		gb_vars["queue"].append(data)
-	else:
+	if not is_leader() and gb_vars["leader"] is not None:
 		forward_to_leader(data)
+	else:
+		gb_vars["queue"].append(data)
+
+		if gb_vars["leader"] is None:
+			prep_election()
+		elif is_leader() and len(gb_vars["queue"]) == 0:
+			request_acceptance()
+	# if gb_vars["leader"] is None:
+	# 	if gb_vars["phase"] == 0:
+	# 	prep_election(data)
+	# elif is_leader():
+	# 	gb_vars["queue"].append(data)
+	# 	if len(gb_vars["queue"]) == 0:
+	# 		request_acceptance()
+	# else:
+	# 	forward_to_leader(data)
 
 def handle_prep_ballot(stream, addr, data):
 	global gb_vars
@@ -291,6 +331,12 @@ def respond(stream, addr):
 			logger("closed stream from {}".format(addr))
 			break
 
+		if str(addr) in gb_vars["addr_pid_map"]:
+			pid = gb_vars["addr_pid_map"][str(addr)]
+			if not gb_vars["sock_dict"][pid]["functional"]:
+				logger("cannot receive from {} due to failed link".format(pid))
+				continue
+
 		data = data.decode()
 		logger("received from {}\n\tdata: {}".format(addr, data))
 
@@ -329,7 +375,9 @@ if __name__ == "__main__":
 		"db": KV_Store(),
 		"exit_flag": False,
 		"leader": None,
-		"locks": {},
+		"locks": {
+			"ballot": threading.Lock()
+		},
 		"pid": PROCESS_ID,
 		"phase": 0,
 		"queue": [],
