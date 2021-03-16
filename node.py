@@ -20,7 +20,7 @@ def logger(content, log=True):
 	if log:
 		print("{}: {}".format(PROCESS_ID, content))
 
-def connect_clients(config):
+def connect_nodes(config):
 	global gb_vars
 
 	for pid in config:
@@ -277,7 +277,7 @@ def get_user_input(config):
 		input_arr = user_input.split(" ", 1)
 
 		if user_input == "connect":
-			connect_clients(config)
+			connect_nodes(config)
 
 		elif user_input == "exit":
 			handle_exit()
