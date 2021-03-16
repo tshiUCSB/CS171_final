@@ -79,7 +79,16 @@ def await_msg(sock, retry=False, opt=None):
 		gb_vars["timeout"][1] = True
 		threading.Thread(target=timeout, args=(retry, opt)).start()
 
-		data = sock.recv(1024)
+		try:
+			data = sock.recv(1024)
+		except:
+			gb_vars["timeout"][1] = False
+
+			if gb_vars["est_lead"] in config:
+				config.pop(gb_vars["est_lead"])
+			lead = get_rand_lead()
+			req_operation(retry=False, switch_lead=lead)
+			return
 
 	gb_vars["timeout"][1] = False
 
@@ -87,7 +96,8 @@ def await_msg(sock, retry=False, opt=None):
 		logger("connection to {} closed".format(gb_vars["est_lead"]))
 
 		if len(gb_vars["queue"]) > 0:
-			config.pop(gb_vars["est_lead"])
+			if gb_vars["est_lead"] in config:
+				config.pop(gb_vars["est_lead"])
 			lead = get_rand_lead()
 			req_operation(retry=False, switch_lead=lead)
 		return
@@ -107,7 +117,18 @@ def await_msg(sock, retry=False, opt=None):
 def send_msg(pid, sock, msg, retry=False, opt=None):
 	global gb_var
 
-	sock.sendall(bytes(msg, "utf-8"))
+	try:
+		sock.sendall(bytes(msg, "utf-8"))
+	except:
+		logger("exception from send to " + pid)
+
+		if gb_vars["est_lead"] in config:
+			config.pop(gb_vars["est_lead"])
+		lead = get_rand_lead()
+		switch_leader(lead)
+		send_msg(lead, gb_vars["sock"], msg, retry, opt)
+		return
+
 	logger("sent to {}\n\tmsg: {}".format(pid, msg))
 
 	await_msg(sock, retry=retry, opt=opt);

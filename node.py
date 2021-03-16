@@ -205,7 +205,11 @@ def broadcast_msg(msg, recv=False):
 			logger("cannot send to {} due to failed link".format(pid))
 			continue
 		sock = gb_vars["sock_dict"][pid]["sock"]
-		sock.sendall(bytes(msg, "utf-8"))
+		try:
+			sock.sendall(bytes(msg, "utf-8"))
+		except:
+			logger("cannot send to " + pid)
+			continue
 
 		if recv:
 			threading.Thread(target=handle_recv, args=(sock, pid)).start()
@@ -224,7 +228,12 @@ def send_msg(pid, sock, msg):
 		logger("cannot send to {} due to failed link".format(pid))
 		return
 
-	sock.sendall(bytes(msg, "utf-8"))
+	try:
+		sock.sendall(bytes(msg, "utf-8"))
+	except:
+		logger("cannot send to " + pid)
+		return
+
 	gb_vars["clock"].increment_clock()
 
 	logger("sent to {}\n\tmsg: {}".format(pid, msg))
