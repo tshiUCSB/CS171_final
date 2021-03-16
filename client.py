@@ -91,8 +91,8 @@ def await_msg(sock, retry=False):
 			lead = get_rand_lead()
 			req_operation(retry=False, switch_lead=lead)
 		return
-
-	gb_vars["queue"].pop(0)
+	if len(gb_vars["queue"]) != 0:
+		gb_vars["queue"].pop(0)
 	data = data.decode()
 
 	logger("received {}".format(data))
@@ -100,6 +100,9 @@ def await_msg(sock, retry=False):
 	data = json.loads(data)
 	if "leader" in data["data"]:
 		switch_leader(lead=data["data"]["leader"])
+
+	if len(gb_vars["queue"]) > 0:
+		req_operation()
 
 def send_msg(pid, sock, msg, retry=False):
 	global gb_var

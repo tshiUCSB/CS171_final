@@ -130,6 +130,7 @@ class Block:
 		self.op.init_from_dict(d["op"])
 		self.prev = d["prev"]
 		self.nonce = d["nonce"]
+		self.decided = False
 
 class Blockchain:
 	def __init__(self):

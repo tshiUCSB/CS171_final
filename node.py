@@ -441,6 +441,7 @@ def handle_prep_ballot(stream, addr, data):
 		accp = gb_vars["accepted"]
 		accp_dict = {}
 		accp_dict["bal_num"] = accp["bal_num"].to_dict()
+		accp_dict["depth"] = accp["depth"]
 		if accp["val"] is not None:
 			if isinstance(accp["val"], Block):
 				accp_dict["val"] = accp["val"].to_dict()
