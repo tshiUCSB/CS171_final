@@ -29,4 +29,6 @@ class KV_Store:
 
 	def get(self, key):
 		with self.lock:
+			if key not in self.store:
+				return None
 			return self.store[key]

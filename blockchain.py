@@ -5,6 +5,7 @@ import json
 import pickle
 
 from database import KV_Store
+from lamport import Lamport_Clock
 
 class Operation:
 	def __init__(self, op, key, val={}):
@@ -16,7 +17,7 @@ class Operation:
 		s = self.op + "-" + self.key + "-" + str(self.val)
 		return s
 
-	def __dict__(self):
+	def to_dict(self):
 		content = {
 			"op": op,
 			"key": key
@@ -36,31 +37,38 @@ class Ballot:
 		self.val = val
 		self.depth = depth
 		self.acceptance = set()
+		self.max_num = ballot_num
 
 	def __eq__(self, rhs):
 		if self.depth == rhs.depth:
-			return self.num == rhs.num
+			return self.max_num == rhs.max_num
 		return False
 
 	def __lt__(self, rhs):
 		if self.depth == rhs.depth:
-			return self.num < rhs.num
+			return self.max_num < rhs.max_num
 		return self.depth < rhs.depth
 
 	def __gt__(self, rhs):
 		if self.depth == rhs.depth:
-			return self.num > rhs.num
+			return self.max_num > rhs.max_num
 		return self.depth > rhs.depth
+
+	def init_from_dict(self, d):
+		self.num = Lamport_Clock(d["bal_num"]["pid"], d["bal_num"]["clock"])
+		self.max_num = self.num
+		self.depth = d["depth"]
+		self.val = d["val"]
 
 class Block:
 	def __init__(self, op, prev, decided=False):
 		self.op = op
 		self.prev = prev
 		self.nonce = self.calc_nonce()
-		self.tag = decided
+		self.decided = decided
 
 	def __str__(self):
-		tag = "tentative" if self.tag is False else "decided"
+		decided = "tentative" if self.decided is False else "decided"
 		s = "\top: {}\n\thash: {}\n\tnonce: {}\n\ttag: {}".format(self.op, self.prev, self.nonce, tag)
 		return s
 
@@ -104,9 +112,9 @@ class Block:
 
 		return self.calc_nonce_helper("", poss_chars, max_len)
 
-	def __dict__(self):
+	def to_dict(self):
 		return {
-			"op": vars(self.op),
+			"op": self.op.to_dict(),
 			"prev": self.prev,
 			"nonce": self.nonce
 		}
@@ -123,6 +131,9 @@ class Blockchain:
 		s += "=====blockchain_end====="
 
 		return s
+
+	def __len__(self):
+		return len(self.chain)
 
 	def write_to_disk(self, save_file):
 		save = open(save_file, 'wb')
@@ -157,12 +168,9 @@ class Blockchain:
 		if save_file is not None:
 			self.write_to_disk(save_file)
 
-	def __dict__(self):
-		lst = [vars(self.chain[i]) for i in range(len(self.chain))]
+	def to_dict(self):
+		lst = [self.chain[i].to_dict() for i in range(len(self.chain))]
 		return {"chain": lst}
-
-	def __len__(self):
-		return len(self.chain)
 
 if __name__ == "__main__":
 	bc = Blockchain()

@@ -7,7 +7,7 @@ import socket
 import sys
 import threading
 
-from blockchain import Blockchain
+from blockchain import Blockchain, Ballot
 from database import KV_Store
 from lamport import Lamport_Clock
 from queue import Queue
@@ -44,7 +44,42 @@ def handle_exit():
 	gb_vars["in_sock"].close()
 	os._exit(0)
 
-def broadcast_msg(msg):
+def gather_promise(sock, data):
+	global gb_vars
+
+	bal_num = data["bal_num"]
+	curr_bal= gb_vars["ballot"]
+	prom_bal_num = Lamport_Clock(bal_num["pid"], bal_num["clock"])
+
+	if prom_bal_num != curr_bal.num:
+		logger("promised ballot number {} doesn't match own ballot {}".format(prom_bal_num, curr_bal.num))
+		return
+
+	curr_bal.acceptance.add(bal_num["pid"])
+
+	# if "val" in data["accp"]:
+	# 	accp_bal = Ballot(0, 0).init_from_dict(data["accp"])
+	# 	if accp_bal > curr_bal:
+	# 		curr_bal.depth = accp_bal.depth
+	# 		curr_bal.max_num = accp_bal.num
+	# 		curr_bal.val = accp_bal.val
+
+def handle_recv(sock, pid):
+	data = sock.recv(1024)
+	if not data:
+		return
+	data = data.decode()
+	logger("received from {}\n\tdata: {}".format(pid, data))
+	data = json.loads(data)
+
+	opcode = data["opcode"]
+	opcode_dict = {
+		"PROM": gather_promise
+	}
+
+	threading.Thread(target=opcode_dict[opcode], args=(sock, data["data"])).start()
+
+def broadcast_msg(msg, recv=False):
 	global gb_vars
 
 	for pid in gb_vars["sock_dict"]:
@@ -52,6 +87,9 @@ def broadcast_msg(msg):
 			continue
 		sock = gb_vars["sock_dict"][pid]["sock"]
 		sock.sendall(bytes(msg, "utf-8"))
+
+		if recv:
+			threading.Thread(target=handle_recv, args=(sock, pid)).start()
 
 	gb_vars["clock"].increment_clock()
 
@@ -145,22 +183,44 @@ def is_leader():
 def match_pid(stream, addr, data):
 	global gb_vars
 
-	pid = data["data"]
+	pid = data
 	gb_vars["sock_dict"][pid]["addr"] = addr
 	gb_vars["addr_pid_map"][str(addr)] = pid
 
 	# logger("{} : {}".format(addr, pid))
 
 def prep_election(data):
+	global gb_vars
 
+	gb_vars["phase"] = 1
+	gb_vars["queue"].append(data)
 
-def acknowledge_ballot(data):
+	bal = gb_vars["ballot"]
+	bal.num.increment_clock()
+	bal.num.set_pid(gb_vars["pid"])
+	bal.depth = len(gb_vars["bc"]) + 1
 
+	msg = {
+		"opcode": "PREP",
+		"data": {
+			"depth": bal.depth,
+			"bal_num": bal.num.to_dict()
+		}
+	}
+	msg = json.dumps(msg)
+
+	logger("prepping election for {}".format(bal.num))
+	broadcast_msg(msg, True)
+
+def request_acceptance(data):
+	global gb_vars
+
+	gb_vars["queue"].append(data)
+	return
 
 def forward_to_leader(data):
 	global gb_vars
 
-	data["req_num"] = key
 	msg = {
 		"opcode": "PROP",
 		"data": data
@@ -177,13 +237,45 @@ def handle_proposed_op(stream, addr, data):
 	if "req_num" not in data:
 		gb_vars["client_reqs"][key] = stream
 
-	if gb_vars["leader"] is None:
-		prep_election()
-	elif is_leader():
-		acknowledge_ballot()
-	else:
-		forward_to_leader(key, data)
+	data["req_num"] = key
 
+	if gb_vars["leader"] is None:
+		prep_election(data)
+	elif is_leader():
+		request_acceptance(data)
+	else:
+		forward_to_leader(data)
+
+def handle_prep_ballot(stream, addr, data):
+	global gb_vars
+
+	prep_bal = Ballot(Lamport_Clock(data["bal_num"]["pid"], data["bal_num"]["clock"]), None, data["depth"])
+	curr_bal = gb_vars["ballot"]
+	
+	if prep_bal > curr_bal:
+		gb_vars["ballot"].num = prep_bal.num
+
+		accp = gb_vars["accepted"]
+		accp_dict = {}
+		accp_dict["bal_num"] = accp["bal_num"].to_dict()
+		if accp["val"] is not None:
+			accp_dict["val"] = accp["val"]
+
+		pid = gb_vars["addr_pid_map"][str(addr)]
+		gb_vars["leader"] = pid
+
+		msg = {
+			"opcode": "PROM",
+			"data": {
+				"bal_num": data["bal_num"],
+				"depth": data["depth"],
+				"accp": accp_dict
+			}
+		}
+		msg = json.dumps(msg)
+
+		logger("promising {}".format(prep_bal.num))
+		send_msg(pid, stream, msg)
 
 def respond(stream, addr):
 	global gb_vars
@@ -211,7 +303,8 @@ def respond(stream, addr):
 		opcode = data["opcode"]
 		opcode_dict = {
 			"PID": match_pid,
-			"PROP": handle_proposed_op
+			"PROP": handle_proposed_op,
+			"PREP": handle_prep_ballot
 		}
 		if opcode not in opcode_dict:
 			logger("invalid opcode: " + opcode)
@@ -224,11 +317,11 @@ if __name__ == "__main__":
 
 	gb_vars = {
 		"accepted": {
-			"ballot": Lamport_Clock(0),
+			"bal_num": Lamport_Clock(0),
 			"val": None
 		},
 		"addr_pid_map": {},
-		"ballot_num": Lamport_Clock(0),
+		"ballot": Ballot(Lamport_Clock(0), None),
 		"bc": Blockchain(),
 		"client_reqs": {},
 		"clock": Lamport_Clock(int(PROCESS_ID)),
@@ -237,7 +330,8 @@ if __name__ == "__main__":
 		"leader": None,
 		"locks": {},
 		"pid": PROCESS_ID,
-		"queue": Queue(),
+		"phase": 0,
+		"queue": [],
 		"sock_dict": {}
 	}
 

@@ -136,7 +136,8 @@ if __name__ == "__main__":
 		"exit_flag": False,
 		"lamport_clock": Lamport_Clock(int(PROCESS_ID)),
 		"sock": None,
-		"sock_dict": {}
+		"sock_dict": {},
+		"timeout": False
 	}
 
 	config_file_path = "config.json"

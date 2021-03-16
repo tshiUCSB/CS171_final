@@ -6,19 +6,24 @@ class Lamport_Clock:
 		self.process_id = int(process_id)
 
 	def __eq__(self, rhs):
-		if not isinstance(rhs, Lamport_clock):
+		if not isinstance(rhs, Lamport_Clock):
 			return False
 		return self.local_clock == rhs.local_clock and self.process_id == rhs.process_id
 
+	def __ne__(self, rhs):
+		if not isinstance(rhs, Lamport_Clock):
+			return True
+		return self.local_clock != rhs.local_clock or self.process_id != rhs.process_id
+
 	def __lt__(self, rhs):
-		if not isinstance(rhs, Lamport_clock):
+		if not isinstance(rhs, Lamport_Clock):
 			return False
 		if self.local_clock == rhs.local_clock:
 			return self.process_id < rhs.process_id
 		return self.local_clock < rhs.local_clock
 
 	def __gt__(self, rhs):
-		if not isinstance(rhs, Lamport_clock):
+		if not isinstance(rhs, Lamport_Clock):
 			return False
 		if self.local_clock == rhs.local_clock:
 			return self.process_id > rhs.process_id
@@ -27,7 +32,7 @@ class Lamport_Clock:
 	def __str__(self):
 		return "{}:{}".format(str(self.local_clock), str(self.process_id))
 
-	def __dict__(self):
+	def to_dict(self):
 		return {
 			"clock": self.local_clock,
 			"pid": self.process_id
@@ -49,3 +54,7 @@ class Lamport_Clock:
 
 	def set_pid(self, pid):
 		self.process_id = pid
+
+	def set_from_dict(self, d):
+		self.local_clock = d["clock"]
+		self.process_id = d["pid"]
