@@ -49,7 +49,7 @@ def send_msg(pid, sock, msg):
 
 	await_msg(sock);
 
-def req_operation(config, op, key, val=None):
+def req_operation(config, op, key, val={}):
 	global gb_vars
 
 	lead = gb_vars["est_lead"]
@@ -69,10 +69,9 @@ def req_operation(config, op, key, val=None):
 
 	content = {
 		"op": op,
-		"key": key
+		"key": key,
+		"val": val
 	}
-	if val is not None:
-		content["val"] = val
 
 	msg = {
 		"opcode": "PROP",

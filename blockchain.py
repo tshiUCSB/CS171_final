@@ -18,13 +18,16 @@ class Operation:
 		return s
 
 	def to_dict(self):
-		content = {
-			"op": op,
-			"key": key
+		return {
+			"op": self.op,
+			"key": self.key,
+			"val": self.val
 		}
-		if val is not None:
-			content["val"] = val
-		return content
+
+	def init_from_dict(self, d):
+		self.op = d["op"]
+		self.key = d["key"]
+		self.val = d["val"]
 
 def parse_op(op_str):
 	op_arr = str.split("-", 2)
@@ -61,14 +64,14 @@ class Ballot:
 		self.val = d["val"]
 
 class Block:
-	def __init__(self, op, prev, decided=False):
+	def __init__(self, op, prev="", decided=False):
 		self.op = op
 		self.prev = prev
 		self.nonce = self.calc_nonce()
 		self.decided = decided
 
 	def __str__(self):
-		decided = "tentative" if self.decided is False else "decided"
+		tag = "tentative" if self.decided is False else "decided"
 		s = "\top: {}\n\thash: {}\n\tnonce: {}\n\ttag: {}".format(self.op, self.prev, self.nonce, tag)
 		return s
 
@@ -167,6 +170,8 @@ class Blockchain:
 
 		if save_file is not None:
 			self.write_to_disk(save_file)
+
+		return new_block
 
 	def to_dict(self):
 		lst = [self.chain[i].to_dict() for i in range(len(self.chain))]

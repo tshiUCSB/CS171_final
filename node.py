@@ -9,7 +9,7 @@ import threading
 
 from time import sleep
 
-from blockchain import Blockchain, Ballot
+from blockchain import Blockchain, Ballot, Operation, Block
 from database import KV_Store
 from lamport import Lamport_Clock
 from queue import Queue
@@ -63,7 +63,8 @@ def gather_promise(sock, data, pid):
 		return
 
 	if "val" in data["accp"]:
-		accp_bal = Ballot(0, 0).init_from_dict(data["accp"])
+		accp_bal = Ballot(0, 0)
+		accp_bal.init_from_dict(data["accp"])
 		if accp_bal > curr_bal:
 			curr_bal.depth = accp_bal.depth
 			curr_bal.max_num = accp_bal.num
@@ -246,7 +247,30 @@ def prep_election():
 def request_acceptance():
 	global gb_vars
 
+	bal = gb_vars["ballot"]
+	data = {
+		"bal_num": bal.num.to_dict(),
+		"depth": bal.depth
+	}
+	if bal.val is None:
+		op = Operation("", "")
+		op.init_from_dict(gb_vars["queue"][0])
+		print(str(op))
+		# blk = gb_vars["bc"].append(op, "save_{}.pkl".format(gb_vars["pid"]))
+		blk = gb_vars["bc"].append(op)
+		print(str(blk))
+		data["val"] = blk.to_dict()
+	else:
+		data["val"] = bal.val
+
+	msg = {
+		"opcode": "ACCP",
+		"data": data
+	}
+	msg = json.dumps(msg)
+
 	logger("requesting acceptance")
+	broadcast_msg(msg, True)
 
 def forward_to_leader(data):
 	global gb_vars
@@ -317,6 +341,16 @@ def handle_prep_ballot(stream, addr, data):
 
 		logger("promising {}".format(prep_bal.num))
 		send_msg(pid, stream, msg)
+	else:
+		logger("rejected prep ballot {}".format(prep_bal.num))
+
+def handle_accp_req(stream, addr, data):
+	global gb_vars
+
+	num = Lamport_Clock(0)
+	num.init_from_dict(data["bal_num"])
+	recv_bal = Ballot(num, None, data["depth"])
+	logger("accept {}?".format(recv_bal.num))
 
 def respond(stream, addr):
 	global gb_vars
@@ -351,7 +385,8 @@ def respond(stream, addr):
 		opcode_dict = {
 			"PID": match_pid,
 			"PROP": handle_proposed_op,
-			"PREP": handle_prep_ballot
+			"PREP": handle_prep_ballot,
+			"ACCP": handle_accp_req
 		}
 		if opcode not in opcode_dict:
 			logger("invalid opcode: " + opcode)

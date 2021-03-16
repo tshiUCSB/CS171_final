@@ -60,6 +60,6 @@ class Lamport_Clock:
 	def set_pid(self, pid):
 		self.process_id = int(pid)
 
-	def set_from_dict(self, d):
+	def init_from_dict(self, d):
 		self.local_clock = int(d["clock"])
 		self.process_id = int(d["pid"])
