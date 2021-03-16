@@ -540,6 +540,10 @@ def respond(stream, addr):
 if __name__ == "__main__":
 	PROCESS_ID = sys.argv[1]
 
+	delay = 0
+	if len(sys.argv) > 2:
+		delay = int(sys.argv[2])
+
 	gb_vars = {
 		"accepted": {
 			"bal_num": Lamport_Clock(0),

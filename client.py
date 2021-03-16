@@ -7,6 +7,7 @@ import sys
 import threading
 
 from random import randint
+from time import sleep
 
 from blockchain import Blockchain, Operation, parse_op
 from database import KV_Store
@@ -38,30 +39,75 @@ def handle_exit():
 	sys.stdout.flush()
 	os._exit(0)
 
-def await_msg(sock):
+def switch_leader(lead="1"):
+	if gb_vars["est_lead"] != lead:
+		logger("switching connection from {} to {}".format(gb_vars["est_lead"], lead))
+
+		gb_vars["est_lead"] = lead
+
+		port = config[gb_vars["est_lead"]]
+		sock.close()
+		sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		sock.connect((socket.gethostname(), port))
+
+def timeout(retry):
+	global gb_vars
+	global config
+
+	sleep(gb_vars["timeout"][0])
+	if gb_vars["timeout"][1]:
+		logger("operation timed out after {} seconds".format(gb_vars["timeout"][0]))
+		if not retry:
+			req_operation(retry=True)
+		else:
+			lead = config.keys()[randint(1, len(config))]
+			req_operation(retry=True, switch_lead=lead)
+
+def await_msg(sock, retry=False):
+	global gb_vars
+	global config
+
+	if gb_vars["timeout"][0] is not None:
+		gb_vars["timeout"][1] = True
+		threading.Thread(target=timeout, args=(retry, )).start()
+
 	data = sock.recv(1024)
+	gb_vars["timeout"][1] = False
 	if not data:
+		logger("connection to {} closed, retrying request".format(gb_vars["est_lead"]))
+		config.pop(gb_vars["est_lead"])
+		lead = config.keys()[randint(1, len(config))]
+		req_operation(retry=False, switch_lead=lead)
 		return
+
+	gb_vars["queue"].pop(0)
 	data.decode()
 
 	logger("received {}".format(data))
 
-def send_msg(pid, sock, msg):
+	data = json.loads(data)
+	if "leader" in data:
+		switch_leader(lead=data["leader"])
+
+def send_msg(pid, sock, msg, retry=False):
 	sock.sendall(bytes(msg, "utf-8"))
 	logger("sent to {}\n\tmsg: {}".format(pid, msg))
 
-	await_msg(sock);
+	await_msg(sock, retry);
 
-def req_operation(config, op, key, val={}):
+def req_operation(retry=False, switch_lead=None):
 	global gb_vars
+	global config
 
 	lead = gb_vars["est_lead"]
 	lead_sock = None
 
 	if lead is None:
-		# lead = str(randint(1, len(config)))
+		# lead = config.keys()[randint(1, len(config))]
 		lead = "1"
 		gb_vars["est_lead"] = lead
+
+		logger("connecting to " + lead)
 	
 		lead_port = config[lead]
 		lead_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -69,6 +115,11 @@ def req_operation(config, op, key, val={}):
 		gb_vars["sock"] = lead_sock
 	else:
 		lead_sock = gb_vars["sock"]
+
+	if switch_lead is not None:
+		switch_leader(lead=switch_lead)
+
+	op, key, val = gb_vars["queue"][0]
 
 	if isinstance(val, str):
 		val = json.loads(val)
@@ -79,13 +130,16 @@ def req_operation(config, op, key, val={}):
 		"val": val
 	}
 
+	opcode = "PROP"
+	if retry:
+		opcode = "LEAD"
 	msg = {
-		"opcode": "PROP",
+		"opcode": opcode,
 		"data": content
 	}
 	msg = json.dumps(msg)
 
-	send_msg(lead, lead_sock, msg)
+	send_msg(lead, lead_sock, msg, retry)
 
 
 def get_user_input(config):
@@ -124,9 +178,12 @@ def get_user_input(config):
 				print("expected 3 arguments for put operation, received " + str(len(args)))
 				continue
 
-			args.insert(0, config)
+			if len(args) == 2:
+				args.append({})
 
-			threading.Thread(target=req_operation, args=tuple(args)).start()
+			gb_vars["queue"].append(args)
+			if len(gb_vars["queue"]) == 1:
+				threading.Thread(target=req_operation).start()
 
 		else:
 			print("invalid input")
@@ -135,14 +192,19 @@ def get_user_input(config):
 if __name__ == "__main__":
 	PROCESS_ID = sys.argv[1]
 	PORT = sys.argv[2]
+	
+	timeout = [None, False]
+	if len(sys.argv) > 3:
+		timeout[0] = int(sys.argv[3])
 
 	gb_vars = {
 		"est_lead": None,
 		"exit_flag": False,
 		"lamport_clock": Lamport_Clock(int(PROCESS_ID)),
+		"queue": [],
 		"sock": None,
 		"sock_dict": {},
-		"timeout": False
+		"timeout": timeout
 	}
 
 	config_file_path = "config.json"
@@ -150,7 +212,7 @@ if __name__ == "__main__":
 	config = json.load(config_file)
 	config_file.close()
 
-	threading.Thread(target=get_user_input, args=(config, )).start()
+	get_user_input(config)
 
 
 
