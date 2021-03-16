@@ -28,6 +28,7 @@ def connect_clients(config):
 			port = config[pid]
 			sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 			sock.connect((socket.gethostname(), port))
+			logger("connecting to {}".format(pid))
 
 			gb_vars["sock_dict"][pid]["sock"] = sock
 
