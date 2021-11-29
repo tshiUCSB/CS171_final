@@ -1,0 +1,18 @@
+connect
+exit
+
+Operation(put, alice, {"phone_number": "111-222-3333"})
+Operation(get, alice)
+Operation(put, charlie, {"phone_number": "111-111-1111"})
+Operation(get, charlie)
+Operation(get, wilbur)
+
+Operation(get, jared)
+Operation(put, wilbur, {"phone_number": "123-456-7890"})
+Operation(get, wilbur)
+Operation(get, charlie)
+Operation(get, alice)
+
+Operation(put, phil, {"phone_number": "222-222-2222"})
+Operation(put, charlie, {"phone_number": "211-111-1111"})
+Operation(put, george, {"phone-number": "345-345-3456"})

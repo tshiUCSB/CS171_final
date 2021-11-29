@@ -2,7 +2,7 @@
 
 from threading import Lock
 
-class Database:
+class KV_Store:
 	def __init__(self):
 		self.store = {}
 		self.lock = Lock()
@@ -29,4 +29,6 @@ class Database:
 
 	def get(self, key):
 		with self.lock:
+			if key not in self.store:
+				return None
 			return self.store[key]

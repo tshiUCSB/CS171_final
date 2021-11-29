@@ -4,7 +4,8 @@ from hashlib import sha256
 import json
 import pickle
 
-from database import Database
+from database import KV_Store
+from lamport import Lamport_Clock
 
 class Operation:
 	def __init__(self, op, key, val={}):
@@ -16,36 +17,64 @@ class Operation:
 		s = self.op + "-" + self.key + "-" + str(self.val)
 		return s
 
+	def to_dict(self):
+		return {
+			"op": self.op,
+			"key": self.key,
+			"val": self.val
+		}
+
+	def init_from_dict(self, d):
+		self.op = d["op"]
+		self.key = d["key"]
+		self.val = d["val"]
+
 def parse_op(op_str):
 	op_arr = str.split("-", 2)
 	val = json.loads(op_arr[2])
 	return Operation(op_arr[0], op_arr[1], val)
 
 class Ballot:
-	def __init__(self, ballot_num, op):
+	def __init__(self, ballot_num, val=None, depth=0):
 		self.num = ballot_num
-		self.val = op
+		self.val = val
+		self.depth = int(depth)
 		self.acceptance = set()
+		self.max_num = ballot_num
 
 	def __eq__(self, rhs):
-		return self.num == rhs.num
+		if self.depth == rhs.depth:
+			return self.max_num == rhs.max_num
+		return False
 
 	def __lt__(self, rhs):
-		return self.num < rhs.num
+		if self.depth == rhs.depth:
+			return self.max_num < rhs.max_num
+		return self.depth < rhs.depth
 
 	def __gt__(self, rhs):
-		return self.num > rhs.num
+		if self.depth == rhs.depth:
+			return self.max_num > rhs.max_num
+		return self.depth > rhs.depth
+
+	def init_from_dict(self, d):
+		self.num = Lamport_Clock(d["bal_num"]["pid"], d["bal_num"]["clock"])
+		self.max_num = self.num
+		self.depth = int(d["depth"])
+		self.val = d["val"]
 
 class Block:
-	def __init__(self, op, prev, tag=0):
-		self.op = op
-		self.prev = prev
-		self.nonce = self.calc_nonce()
-		# 0: tentative; 1: decided
-		self.tag = tag
+	def __init__(self, op, prev="", decided=False, d={}):
+		if len(d) == 0:
+			self.op = op
+			self.prev = prev
+			self.nonce = self.calc_nonce()
+			self.decided = decided
+		else:
+			self.init_from_dict(d)
 
 	def __str__(self):
-		tag = "tentative" if self.tag == 0 else "decided"
+		tag = "tentative" if self.decided is False else "decided"
 		s = "\top: {}\n\thash: {}\n\tnonce: {}\n\ttag: {}".format(self.op, self.prev, self.nonce, tag)
 		return s
 
@@ -89,6 +118,20 @@ class Block:
 
 		return self.calc_nonce_helper("", poss_chars, max_len)
 
+	def to_dict(self):
+		return {
+			"op": self.op.to_dict(),
+			"prev": self.prev,
+			"nonce": self.nonce
+		}
+
+	def init_from_dict(self, d):
+		self.op = Operation("", "")
+		self.op.init_from_dict(d["op"])
+		self.prev = d["prev"]
+		self.nonce = d["nonce"]
+		self.decided = False
+
 class Blockchain:
 	def __init__(self):
 		self.chain = []
@@ -102,6 +145,9 @@ class Blockchain:
 
 		return s
 
+	def __len__(self):
+		return len(self.chain)
+
 	def write_to_disk(self, save_file):
 		save = open(save_file, 'wb')
 		pickle.dump(self.chain, save)
@@ -112,7 +158,7 @@ class Blockchain:
 		self.chain = pickle.load(save)
 		save.close()
 
-		db = Database()
+		db = KV_Store()
 		for blk in self.chain:
 			val = db.dispatch(blk.op)
 			if print_val:
@@ -135,6 +181,19 @@ class Blockchain:
 		if save_file is not None:
 			self.write_to_disk(save_file)
 
+		return new_block
+
+	def append_block(self, blk, save_file=None):
+		self.chain.append(blk)
+
+		if save_file is not None:
+			self.write_to_disk(save_file)
+
+		return blk
+
+	def to_dict(self):
+		lst = [self.chain[i].to_dict() for i in range(len(self.chain))]
+		return {"chain": lst}
 
 if __name__ == "__main__":
 	bc = Blockchain()
